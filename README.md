@@ -20,6 +20,21 @@ A bank employee deals with two constant risks:
 
 This suite solves both: the analyzer **verifies its own output against the source PDF** (no LLM in the verification loop), and the anonymizer redacts with checksum-validated rules before anything is shared.
 
+### Why now (2026–2028 regulatory wave)
+
+This project is built deliberately ahead of the regulatory curve. The EU AI
+Act classifies credit-scoring/creditworthiness AI as **high-risk** (Annex III,
+obligations apply **2 Dec 2027**): banks will need audit-ready evidence for
+every AI-assisted decision. PSD3/PSR make **Verification of Payee
+(name↔IBAN)** mandatory, and the Instant Payments Regulation brings it to
+Denmark in **2027**. The verification engine is a working Art. 13
+explainability implementation for financial AI; the anonymizer's IBAN
+mod-97/Luhn/CPR checks are exactly the VoP and data-sharing primitives the
+rules require.
+
+→ Full market briefing with dates, sources and a Danish-bank roadmap:
+[`docs/banking-2026-2028.md`](docs/banking-2026-2028.md)
+
 ## The verification engine (the hard part)
 
 `core/verification.py` re-checks every citation the LLM emits:

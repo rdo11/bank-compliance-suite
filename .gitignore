@@ -26,3 +26,5 @@ analyzer/sample_data/sample_annual_report.pdf
 
 # PyInstaller
 *.spec.bak
+# Live-test runtime artifacts
+analyzer/scripts/live_result.json

@@ -27,6 +27,12 @@ logger = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 60
 MAX_REPAIR_ATTEMPTS = 3
 
+# Context budget: deepseek-chat has a 64K-token window (~48k chars). The real
+# Novo Nordisk report is ~650k chars, so we keep the full extracted-tables
+# block (that is where citations live) and only truncate the raw text front.
+MAX_CONTEXT_CHARS = 42000
+_TABLES_MARKER = "\n\n=== EXTRACTED TABLES ===\n"
+
 # Provider registry: all speak the OpenAI chat-completions protocol, so the
 # same client works for OpenAI, DeepSeek (~1/30th cost) and Gemini Flash Lite
 # (generous free tier) — just set LLM_PROVIDER in .env.
@@ -81,6 +87,8 @@ class LLMClient:
         self.model = model or PROVIDERS[self.provider]["model"]
         self.timeout = timeout
         self.max_repair_attempts = max_repair_attempts
+        self.last_truncated = False
+        self._raw_len = 0
         self._client = None
 
     # ---------------------------------------------------------------- setup
@@ -149,8 +157,16 @@ Required JSON schema:
         return resp.choices[0].message.content or ""
 
     # ---------------------------------------------------------------- driver
-    def analyse(self, context: str) -> FinalReport:
-        """Run the analysis with JSON-repair retries; always return a valid report."""
+    def analyse(self, context: str,
+                max_context_chars: int = MAX_CONTEXT_CHARS) -> FinalReport:
+        """Run the analysis with JSON-repair retries; always return a valid report.
+
+        ``context`` is trimmed to ``max_context_chars`` before the call: the
+        tables block is always kept intact (citations point at table ids),
+        only the leading raw text is cut. Returns a flag via the returned
+        report? No — the caller can infer truncation from ``self.last_truncated``.
+        """
+        context = self._fit_context(context, max_context_chars)
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": self._user_prompt(context)},
@@ -184,6 +200,53 @@ Required JSON schema:
         return self._error_report(f"Could not produce valid JSON after repairs: {parse_error}")
 
     # ---------------------------------------------------------------- helpers
+    def _fit_context(self, context: str, max_chars: int) -> str:
+        """Trim oversized contexts, keeping only WHOLE tables.
+
+        The tables block is split at table boundaries (never mid-table), so
+        the row numbers the LLM cites are relative to the same full tables
+        the verification engine later checks. Text budget gets what remains.
+        """
+        self._raw_len = len(context)
+        if len(context) <= max_chars:
+            self.last_truncated = False
+            return context
+        self.last_truncated = True
+        marker = context.find(_TABLES_MARKER)
+        if marker == -1:
+            logger.warning("Context %d chars -> truncated to %d chars",
+                           self._raw_len, max_chars)
+            return context[:max_chars]
+        text = context[:marker]
+        tables = context[marker:]
+
+        # Split at table boundaries (never mid-table), then rank tables by
+        # numeric richness so the budget always contains the financial
+        # statements rather than the first infographic boxes.
+        table_budget = max_chars // 2
+        chunks = re.split(r"(?=\n\n### TABLE_\d+)", tables)
+        marker_text = chunks[0][: len(_TABLES_MARKER)] if chunks else ""
+        rest = [c for c in chunks if not c.startswith(_TABLES_MARKER)]
+
+        def _numeric_richness(chunk: str) -> int:
+            return sum(1 for line in chunk.splitlines()
+                       if re.search(r"\d", line))
+
+        kept_tables = marker_text
+        for chunk in sorted(rest, key=_numeric_richness, reverse=True):
+            if len(kept_tables) + len(chunk) > table_budget:
+                break
+            kept_tables += chunk
+
+        text_budget = max_chars - len(kept_tables)
+        kept_text = text if len(text) <= text_budget else text[:text_budget]
+        logger.warning(
+            "Context %d chars -> kept %d text chars + %d table chars "
+            "(tables cut at boundaries, last kept: %s)",
+            self._raw_len, len(kept_text), len(kept_tables),
+            kept_tables.splitlines()[0] if kept_tables else "none")
+        return kept_text + kept_tables
+
     def _safe_chat(self, messages: list[dict]) -> tuple[Optional[str], Optional[str]]:
         try:
             return self._chat(messages), None

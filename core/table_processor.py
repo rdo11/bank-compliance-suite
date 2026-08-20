@@ -166,6 +166,25 @@ class TableProcessor:
                 df.columns = [f if f else f"Column_{i+1}" for i, f in enumerate(first)]
                 df = df.iloc[1:].reset_index(drop=True)
 
+            # Promote label-only sub-header rows (e.g. "Financial performance"
+            # above "Net sales"). A row is a sub-header when it is sparse,
+            # contains no digits, and the following row is numeric — keeping
+            # these rows would shift every 1-based row citation by one.
+            while df.shape[0] > 1:
+                row0 = [_clean_cell(v) for v in df.iloc[0].tolist()]
+                row1 = [_clean_cell(v) for v in df.iloc[1].tolist()]
+
+                def _has_digit(row: list[str]) -> bool:
+                    return any(any(ch.isdigit() for ch in cell) for cell in row)
+
+                non_empty = sum(1 for v in row0 if v)
+                sparse = non_empty * 2 < len(row0)
+                if sparse and not _has_digit(row0) and _has_digit(row1):
+                    logger.debug("Dropping sub-header row: %s", row0)
+                    df = df.iloc[1:].reset_index(drop=True)
+                else:
+                    break
+
         # flatten MultiIndex headers -> ["2023 (Revenue)", ...]
         if isinstance(df.columns, pd.MultiIndex):
             flat = [_flatten_header(ix, str(i)) for i, ix in enumerate(df.columns)]

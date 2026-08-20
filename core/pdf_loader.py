@@ -104,24 +104,35 @@ class PDFLoader:
 
     # --------------------------------------------------------------- tables
     def _camelot_tables(self, pdf_path: str, page: int) -> Optional[list[pd.DataFrame]]:
-        """Camelot extraction: lattice first, then stream."""
+        """Camelot extraction: try both flavors, keep the richer result set.
+
+        Some pages carry a small lattice table (e.g. an infographic box) next
+        to the real financial table; picking the first non-empty result would
+        silently drop the figures. So we rank candidate result-sets by total
+        cell count and return the richest.
+        """
         if not self._camelot:
             return None
+        import inspect
+
+        supported = inspect.signature(self._camelot.read_pdf).parameters
+        quiet = {k: True for k in ("suppress_stdout", "silent") if k in supported}
+        candidates: list[tuple[int, list[pd.DataFrame]]] = []
         for flavor in ("lattice", "stream"):
             try:
                 tbls = self._camelot.read_pdf(
                     pdf_path,
                     pages=str(page),
                     flavor=flavor,
-                    suppress_stdout=True,
-                    silent=True,
+                    **quiet,
                 )
-                frames = [t.df for t in tbls if t.df.shape[0] > 0]
+                frames = [t.df for t in tbls if t.df.shape[0] > 1]
                 if frames:
-                    return frames
+                    cells = sum(int(t.shape[0] * t.shape[1]) for t in frames)
+                    candidates.append((cells, frames))
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Camelot %s failed on page %d: %s", flavor, page, exc)
-        return None
+        return max(candidates, default=None)[1] if candidates else None
 
     def _tabula_tables(self, pdf_path: str, page: int) -> Optional[list[pd.DataFrame]]:
         """Tabula fallback for pages Camelot could not parse."""
