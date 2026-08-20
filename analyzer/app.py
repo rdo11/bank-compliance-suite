@@ -33,6 +33,7 @@ from core.verification import VerificationEngine
 from utils.citation_formatter import (
     format_metrics_table,
     format_risks_table,
+    format_verification_table,
 )
 
 load_dotenv()

@@ -80,6 +80,81 @@ def _de_dup_columns(columns: list[str]) -> list[str]:
     return out
 
 
+_NUMERIC_RE = re.compile(
+    r"^[\d.,%()+\-–\s]*[\d][\d.,%()+\-–]*(pp\.?|pp|pct\.?|%)?$", re.IGNORECASE)
+
+
+def _is_numeric_cell(value) -> bool:
+    """True when a cleaned cell is a pure number (incl. %, parens, dashes)."""
+    s = _clean_cell(value)
+    if not s or s.isalpha():
+        return False
+    return bool(_NUMERIC_RE.match(s))
+
+
+def _split_dual(df: pd.DataFrame) -> list[pd.DataFrame]:
+    """Split a two-sides-side-by-side Camelot frame into two logical tables.
+
+    Financial-highlights pages often place two tables next to each other
+    (e.g. "Financial performance" | "Financial ratios"). Camelot extracts
+    them as one wide frame; the LLM then numbers rows per visual side while
+    the verification engine numbers full rows — a systematic citation
+    mismatch. Detecting the two label columns (one per side) lets us split
+    the frame so row numbering stays consistent between the two.
+    """
+    if df.shape[1] < 5 or df.shape[0] < 2:
+        return [df]
+
+    def _label_score(col: int) -> float:
+        vals = df.iloc[:, col]
+        non_empty = sum(1 for v in vals if _clean_cell(v))
+        numeric = sum(1 for v in vals if _is_numeric_cell(v))
+        if non_empty == 0:
+            return 0.0
+        return (non_empty - numeric) / non_empty
+
+    n_rows = df.shape[0]
+    scores = [_label_score(c) for c in range(df.shape[1])]
+    label_cols = [
+        c for c in range(df.shape[1])
+        if scores[c] >= 0.6
+        and sum(1 for v in df.iloc[:, c] if _clean_cell(v)) >= 0.3 * n_rows
+    ]
+
+    if len(label_cols) < 2:
+        return [df]
+
+    first, second = label_cols[0], label_cols[1]
+    if second - first < 2 or second + 1 >= df.shape[1]:
+        return [df]
+
+    def _numeric_run(lo: int, hi: int) -> bool:
+        # tolerance: header cells like "Change" / "pp" labels lower the score
+        return all(scores[c] <= 0.5 for c in range(lo, hi))
+
+    # require numbers between the two label columns AND after the second one
+    if not _numeric_run(first + 1, second) or not _numeric_run(second + 1, df.shape[1]):
+        return [df]
+
+    # reject matrix-like frames with more than two label clusters
+    clusters = 1
+    for i in range(1, len(label_cols)):
+        if label_cols[i] - label_cols[i - 1] > 2:
+            clusters += 1
+    if clusters > 2:
+        return [df]
+
+    left = df.iloc[:, :second].reset_index(drop=True)
+    right = df.iloc[:, second:].reset_index(drop=True)
+    # reset column labels too (slices keep the original integer labels, which
+    # defeats the RangeIndex check that promotes the first row to a header)
+    left.columns = pd.RangeIndex(len(left.columns))
+    right.columns = pd.RangeIndex(len(right.columns))
+    logger.debug("Split dual table: %d cols -> left %d cols, right %d cols",
+                 df.shape[1], left.shape[1], right.shape[1])
+    return [left, right]
+
+
 @dataclass
 class ProcessedTable:
     """A cleaned table with its citation metadata."""
@@ -128,10 +203,11 @@ class TableProcessor:
         """Clean + flatten a list of raw DataFrames from one page."""
         out: list[ProcessedTable] = []
         for df in frames:
-            cleaned = self._clean(df)
-            if cleaned is None:
-                continue
-            out.append(self._to_processed(cleaned, page, source))
+            for part in _split_dual(df):
+                cleaned = self._clean(part)
+                if cleaned is None:
+                    continue
+                out.append(self._to_processed(cleaned, page, source))
         return out
 
     def build_context(self, tables: list[ProcessedTable]) -> str:

@@ -246,13 +246,26 @@ class VerificationEngine:
         label_ok = self._label_in_row(label, row_cells)
 
         if not value_ok:
+            # enrich the audit trail: if the claimed value exists elsewhere in
+            # the SAME table, say where — the citation is still wrong, but the
+            # user can tell "row/column shifted" from "value fabricated".
+            found_at = self._find_value_in_table(metric.value, table)
+            if found_at:
+                r, colj = found_at
+                colname = (table.columns[colj - 1]
+                           if colj <= len(table.columns) else str(colj))
+                detail = (f"Value {metric.value} not found at cited location "
+                          f"(found '{value_str}'); exact value at row {r}, "
+                          f"col '{colname}'.")
+            else:
+                detail = (f"Value {metric.value} not found anywhere in "
+                          f"{table.table_id}.")
             return VerificationItem(
                 "metric", label, VALUE_MISMATCH,
                 claimed_value=self._num(metric.value),
                 found_value=value_str,
                 citation=c.model_dump(),
-                detail=f"Value {metric.value} not found at cited location "
-                       f"(found '{value_str}').")
+                detail=detail)
 
         if not label_ok:
             return VerificationItem(
@@ -268,6 +281,17 @@ class VerificationEngine:
             found_value=value_str,
             citation=c.model_dump(),
             detail="Figure and label confirmed at cited location.")
+
+    def _find_value_in_table(self, value, table):
+        """Return (row, col) of the first cell matching ``value`` in a table,
+        or None. Rows/cols are 1-based for display."""
+        if value is None:
+            return None
+        for i, row in enumerate(table.rows):
+            for j, cell in enumerate(row):
+                if value_matches(float(value), cell or ""):
+                    return i + 1, j + 1
+        return None
 
     def verify_risk(self, risk) -> VerificationItem:
         c = risk.citation

@@ -53,7 +53,7 @@ Result:  ✅ verified | ❌ value mismatch | ⚠ label mismatch | ❌ not found 
 
 No LLM is involved in verification — it's deterministic, so it can be audited. The UI shows a **PASS / REVIEW** verdict per report, and the exported JSON includes the full verification trail.
 
-**Real-world test:** the integration suite downloads the actual **Novo Nordisk 2024 annual report** (152 pages, 152 tables, ~647k chars of text) and proves that a metric fabricated from a real extracted cell verifies, while a wrong value fails.
+**Real-world test:** the integration suite downloads the actual **Novo Nordisk 2024 annual report** (152 pages, ~203 extracted tables, ~647k chars of text) and proves that a metric fabricated from a real extracted cell verifies, while a wrong value fails. Side-by-side financial-highlight tables are auto-split so row citations stay consistent between engine and LLM.
 
 ## Tests
 
@@ -127,7 +127,7 @@ bank-compliance-suite/
 │   ├── models/schemas.py      # strict output contract (Pydantic)
 │   ├── utils/citation_formatter.py
 │   ├── scripts/download_sample.py
-│   ├── tests/                 # 24 tests incl. real Novo Nordisk integration
+│   ├── tests/                 # 32 tests incl. real Novo Nordisk integration
 │   └── Dockerfile / docker-compose.yml
 └── anonymizer/                # desktop GDPR clipboard anonymizer
     ├── app.py                 # Tkinter GUI, yellow change highlighting
