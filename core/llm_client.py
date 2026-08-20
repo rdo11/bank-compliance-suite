@@ -41,7 +41,7 @@ PROVIDERS = {
     "deepseek": {"base_url": "https://api.deepseek.com", "model": "deepseek-chat"},
     "gemini": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-        "model": "gemini-2.0-flash-lite",
+        "model": "gemini-3.5-flash-lite",
     },
 }
 

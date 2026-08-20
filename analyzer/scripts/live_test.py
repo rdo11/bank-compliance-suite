@@ -1,7 +1,9 @@
-"""Live end-to-end test: real Novo Nordisk PDF -> DeepSeek -> verified report.
+"""Live end-to-end test: real Novo Nordisk PDF -> LLM -> verified report.
 
 Replicates the exact steps of app.run_pipeline without the Streamlit UI.
-Requires a live API key in the environment (loaded from analyzer/.env).
+Requires a live API key in the environment (loaded from analyzer/.env):
+either DEEPSEEK_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY, with the
+provider selected via LLM_PROVIDER (default: deepseek).
 """
 
 import json
@@ -24,8 +26,9 @@ from core.verification import VerificationEngine
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-assert API_KEY, "DEEPSEEK_API_KEY is not set in analyzer/.env"
+PROVIDER = os.environ.get("LLM_PROVIDER", "deepseek").lower()
+API_KEY = os.environ.get(f"{PROVIDER.upper()}_API_KEY", "")
+assert API_KEY, f"{PROVIDER.upper()}_API_KEY is not set in analyzer/.env"
 PDF = Path(__file__).resolve().parents[1] / "sample_data" / "sample_annual_report.pdf"
 
 
@@ -45,8 +48,8 @@ def main():
     context = "\n\n".join(context_parts)
     print(f"[2/4] extracted {len(tables)} tables, context={len(context):,} chars")
 
-    client = LLMClient(api_key=API_KEY, provider="deepseek")
-    print(f"[3/4] calling deepseek ({client.model}) ...")
+    client = LLMClient(api_key=API_KEY, provider=PROVIDER)
+    print(f"[3/4] calling {PROVIDER} ({client.model}) ...")
     report = client.analyse(context)
     t_llm = time.time() - start
     print(f"      LLM returned in {t_llm:.1f}s; truncated_context={client.last_truncated}")
