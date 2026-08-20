@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.build-venv/
+build/
+dist/
+*.egg-info/
+
+# Secrets & local config
+.env
+
+# Runtime data (never commit customer/PII-adjacent artifacts)
+*.jsonl
+anonymizer_audit.csv
+anonymizer_history.json
+
+# macOS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Large sample downloads (regenerate via scripts/download_sample.py)
+analyzer/sample_data/sample_annual_report.pdf
+
+# PyInstaller
+*.spec.bak

@@ -1,0 +1,15 @@
+services:
+  report-parser:
+    build:
+      context: ..
+      dockerfile: analyzer/Dockerfile
+    container_name: report-parser
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    volumes:
+      - ./sample_data:/app/sample_data
+    restart: unless-stopped
